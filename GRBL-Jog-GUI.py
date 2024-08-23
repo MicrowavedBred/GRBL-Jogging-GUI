@@ -3,7 +3,6 @@ from tkinter import ttk
 import sv_ttk
 import serial
 import serial.tools.list_ports
-import time
 
 
 class Application(tk.Frame):
@@ -13,6 +12,7 @@ class Application(tk.Frame):
         self.pack()
         self.create_widgets()
         self.switch_state = False
+        self.is_connected = False
 
     def create_widgets(self):
         sv_ttk.set_theme("dark")
@@ -59,8 +59,8 @@ class Application(tk.Frame):
         self.COMlist.grid(row=6, column=0)
         # Connected label
         self.com_connected = False
-        self.com_label = tk.Label(self, text='Disconnected', fg='red')
-        self.com_label.grid(row=5, column=0)
+        self.com_connect_label = tk.Label(self, text='Disconnected', fg='red')
+        self.com_connect_label.grid(row=5, column=0)
         # Connect button
         self.connect_button = tk.Button(self, text="Connect", command=self.connect_to_com_port)
         self.connect_button.grid(row=6, column=1)
@@ -94,17 +94,37 @@ class Application(tk.Frame):
             print("Invalid input. Please enter a number.")
             
     def connect_to_com_port(self):
-        selected_port = self.COMlist.get()
-        if selected_port:
-            try:
-                self.serial_connection = serial.Serial(selected_port, 115200, timeout=1)
-                self.com_label.config(text="Connected", fg="green")
-                time.sleep(0.5)
-                self.receive_response()
-            except serial.SerialException as e:
-                self.com_label.config(text="Error: " + str(e), fg="red")
+        if not self.is_connected:
+            selected_port = self.COMlist.get()
+            if selected_port:
+                try:
+                    self.serial_connection = serial.Serial(selected_port, 115200, timeout=1)
+                    self.com_connect_label.config(text="Connected", fg="green")
+                    self.is_connected = True
+                    self.connect_button.config(text='Disconnect')
+                    self.receive_response()
+                except serial.SerialException as e:
+                    self.com_connect_label.config(text="Error: " + str(e), fg="red")
+            else:
+                self.con_label.config(text="Please select a COM port", fg="red")
         else:
-            self.con_label.config(text="Please select a COM port", fg="red")
+            self.disconnect_from_com_port()
+            
+    def disconnect_from_com_port(self):
+        # Close the serial connection
+        if self.serial_connection:
+            self.serial_connection.close()
+            self.serial_connection = None
+            self.is_connected = False
+            self.connect_button.config(text='Connect')
+        if hasattr(self, 'receive_response_id'):
+            self.after_cancel(self.receive_response_id)
+    
+        # Stop the receive response loop
+        self.after_cancel(self.receive_response_id)
+    
+        # Update the connection status label
+        self.com_connect_label.config(text="Disconnected", fg="red")
             
     def send_command(self, command):
         # Send the command to the controller
@@ -115,13 +135,15 @@ class Application(tk.Frame):
         self.debug_output_text.see(tk.END)
 
     def receive_response(self):
-        # Receive all available responses from the controller
-        if self.serial_connection.in_waiting:
+        # Check if there are any incoming serial data
+        if self.serial_connection and self.serial_connection.in_waiting:
             response = self.serial_connection.readline().decode()
             self.debug_output_text.insert(tk.END, f"<< {response}\n")
             self.debug_output_text.see(tk.END)
-        # Call this method again after 10ms to check for new data
-        self.after(30, self.receive_response)
+    
+        # Schedule the next receive_response call
+        if self.is_connected:
+            self.receive_response_id = self.after(30, self.receive_response)
         
     def x_plus(self):
         print('x+ working')
